@@ -1,8 +1,8 @@
-# .streamlit/config.toml (Tema Adaptif Final)
+# .streamlit/config.toml (Tema "Modern Graphite")
 
 [theme]
-primaryColor="#6366F1"
-backgroundColor="#F9FAFB"
-secondaryBackgroundColor="#F3F4F6"
-textColor="#1F2937"
+primaryColor="#00DDFF"
+backgroundColor="#1A1A1A"
+secondaryBackgroundColor="#2A2A2A"
+textColor="#EAEAEA"
 font="sans serif"

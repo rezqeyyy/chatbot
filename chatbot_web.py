@@ -1,236 +1,333 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
 import google.generativeai as genai
-import os, datetime
-import math
+import os, datetime, math, json, re
+from supabase import create_client, Client
 
-# PENGATURAN HALAMAN & CSS ADAPTIF
+# --------------------------------------------------
+# PENGATURAN HALAMAN & CSS
+# --------------------------------------------------
 st.set_page_config(
     page_title="Asisten Bisnis AI",
     page_icon="✨",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# CSS ini menggunakan variabel Streamlit (--text-color, dll.) agar bisa beradaptasi
-st.markdown("""
+def load_custom_css():
+    st.markdown("""
 <style>
+/* ===== FONT & TAMPILAN DASAR ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
-/* --- Sidebar --- */
+/* ===== SIDEBAR ===== */
 [data-testid="stSidebar"] {
-    border-right: 1px solid var(--secondary-background-color);
-    padding: 1.5rem 1rem;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
 }
-.option-menu-container .nav-link {
-    border-radius: 0.5rem !important;
-    color: var(--text-color) !important;
-    opacity: 0.7;
-    transition: all 0.2s;
-}
-.option-menu-container .nav-link:hover {
-    opacity: 1;
-    background: var(--secondary-background-color) !important;
-}
-.option-menu-container .nav-link-selected {
-    background-color: var(--primary-color) !important;
-    color: white !important;
-    opacity: 1;
-}
-.option-menu-container .nav-link-selected svg, .option-menu-container .nav-link:hover svg {
-    fill: white !important;
+/* Mengatur agar menu mengisi ruang & footer menempel di bawah */
+.option-menu-container {
+    flex-grow: 1;
 }
 
-/* --- Konten Utama --- */
+/* ===== KONTEN UTAMA ===== */
+.block-container {
+    padding: 2rem;
+}
 h1 {
-    border-bottom: 2px solid var(--primary-color);
-    padding-bottom: 0.3rem;
-    margin-bottom: 1.5rem;
-}
-[data-testid="stChatMessage"] {
-    background-color: var(--secondary-background-color);
-    border-radius: 0.75rem;
-}
-.stButton>button {
-    border-radius: 0.5rem;
+    font-size: 2.25rem;
+    font-weight: 700;
 }
 
-/* --- Kalkulator Adaptif --- */
-.calculator-display {
-    text-align: right !important;
-    font-size: 2.5rem !important;
-    font-weight: 600 !important;
-    padding: 1rem !important;
-    background-color: var(--secondary-background-color) !important;
-    border-radius: 0.5rem !important;
-    color: var(--text-color);
+/* ===== TAMPILAN CHAT YANG LEBIH RAPI ===== */
+.chat-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
-.stButton>button.equals-button {
-    background-color: var(--primary-color) !important;
-    color: white !important;
+.message-container {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+.message-container.user { justify-content: flex-end; }
+.message-container.ai { justify-content: flex-start; }
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: #4B5563; /* Warna avatar disesuaikan */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: white;
+}
+.text-container {
+    display: flex;
+    flex-direction: column;
+}
+.message-container.user .text-container { align-items: flex-end; }
+.message-container.ai .text-container { align-items: flex-start; }
+.sender-name {
+    font-size: 0.8rem;
+    color: #9CA3AF;
+    margin: 0 0.75rem 0.2rem;
+}
+.chat-bubble {
+    padding: 0.8rem 1.2rem;
+    line-height: 1.6;
+    display: inline-block;
+    max-width: 100%;
+    position: relative;
+    background: #374151; /* Warna bubble yang serasi */
+    color: #F9FAFB;
+    border-radius: 1rem;
+}
+/* Menghilangkan "ekor" untuk desain yang lebih simpel */
+.chat-bubble.ai::before, .chat-bubble.user::after {
+    content: none;
 }
 </style>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-# KONFIGURASI API
-API_KEY = "AIzaSyCv1CwT5pWAF-fkj5nHjIrryu6F2gZeL9c"
+load_custom_css()
+
+# --------------------------------------------------
+# KONFIGURASI API & KONEKSI
+# --------------------------------------------------
+GEMINI_API_KEY = "AIzaSyCv1CwT5pWAF-fkj5nHjIrryu6F2gZeL9c" #
+SUPABASE_URL = "https://mmacplzzdrpezpfremul.supabase.co" #
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tYWNwbHp6ZHJwZXpwZnJlbXVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNDYzMDUsImV4cCI6MjA3NDcyMjMwNX0.h7HMd8xYBz7RnxE1-G5RmowX_-Gn1u_l7NVEFDVwrOg" #
+
 try:
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    genai.configure(api_key=GEMINI_API_KEY) #
+    model = genai.GenerativeModel("gemini-2.5-flash") #
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) #
 except Exception as e:
     st.error(f"Konfigurasi API gagal: {e}")
     st.stop()
 
-# FUNGSI-FUNGSI FITUR
+# --- PEMULIHAN SESI LOGIN ---
+if 'user' not in st.session_state: st.session_state.user = None
+if st.session_state.user:
+    try:
+        supabase.auth.set_session(st.session_state.user.session.access_token, st.session_state.user.session.refresh_token) #
+    except Exception:
+        st.session_state.user = None
+
+# --- FUNGSI-FUNGSI FITUR ---
+
 def fitur_konsultasi():
     st.title("💬 Konsultasi Bisnis")
     st.markdown("Ajukan pertanyaan apa pun seputar bisnis kepada Konsultan AI.")
-    if "chat_session" not in st.session_state:
-        chat = model.start_chat(history=[
-            {"role": "user", "parts": ["Anda adalah konsultan bisnis profesional dari Indonesia."]},
-            {"role": "model", "parts": ["Tentu, saya siap membantu. Silakan ajukan pertanyaan bisnis Anda."]}
-        ])
-        st.session_state.chat_session = chat
-    for msg in st.session_state.chat_session.history:
-        role = "AI" if msg.role == "model" else "Anda"
-        with st.chat_message(role):
-            st.markdown(msg.parts[0].text)
+
+    # Inisialisasi session state jika belum ada
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {"role": "ai", "name": "Konsultan AI", "content": "Tentu, saya siap membantu. Silakan ajukan pertanyaan bisnis Anda."}
+        ]
+
+    # 1. Tampilkan semua pesan yang sudah ada di session state
+    st.markdown('<div class="chat-wrapper">', unsafe_allow_html=True)
+    for message in st.session_state.messages:
+        role = message["role"]
+        avatar_char = "🤖" if role == "ai" else "🧑‍💻"
+        
+        container_html = f'<div class="message-container {role}">'
+        avatar_html = f'<div class="avatar">{avatar_char}</div>'
+        text_html = f'<div class="text-container"><div class="sender-name">{message["name"]}</div><div class="chat-bubble {role}">{message["content"]}</div></div>'
+
+        if role == 'ai':
+            st.markdown(container_html + avatar_html + text_html + '</div>', unsafe_allow_html=True)
+        else: # role == 'user'
+            st.markdown(container_html + text_html + avatar_html + '</div>', unsafe_allow_html=True)
+            
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 2. Tangani input baru dari pengguna
     if prompt := st.chat_input("Tulis pertanyaan Anda…"):
-        with st.chat_message("Anda"):
-            st.markdown(prompt)
+        # Tambahkan pesan pengguna ke state dan LANGSUNG RERUN
+        st.session_state.messages.append({"role": "user", "name": "Anda", "content": prompt})
+        st.rerun()
+
+    # 3. Logika untuk AI merespons (dijalankan setelah rerun)
+    # Cek apakah pesan terakhir adalah dari pengguna, jika iya, maka AI perlu merespons
+    if st.session_state.messages[-1]["role"] == "user":
         with st.spinner("AI sedang berpikir..."):
             try:
-                resp = st.session_state.chat_session.send_message(prompt)
-                with st.chat_message("AI"):
-                    st.markdown(resp.text)
+                # Ambil prompt dari pesan terakhir
+                user_prompt = st.session_state.messages[-1]["content"]
+                response = model.generate_content(user_prompt)
+                ai_response = response.text
             except Exception as e:
-                st.error(f"Terjadi kesalahan: {e}")
-
+                ai_response = f"Terjadi kesalahan: {e}"
+        
+        # Tambahkan respons AI ke state dan RERUN lagi untuk menampilkannya
+        st.session_state.messages.append({"role": "ai", "name": "Konsultan AI", "content": ai_response})
+        st.rerun()
+        
 def fitur_rekomendasi():
-    st.title("💡 Rekomendasi Bisnis")
-    st.markdown("Isi formulir di bawah ini untuk mendapatkan ide bisnis yang dipersonalisasi.")
-    with st.container(border=True):
-        with st.form("rec_form"):
-            st.subheader("Profil Calon Pebisnis")
-            modal = st.text_input("Berapa modal awal yang Anda siapkan?", placeholder="Contoh: Di bawah 5 juta")
-            minat = st.text_input("Apa minat atau hobi utama Anda?")
-            keahlian = st.text_input("Apa keahlian spesifik yang Anda miliki?")
-            waktu = st.text_input("Berapa waktu luang Anda per minggu?")
-            submit = st.form_submit_button("🚀 Berikan Saya Ide!", use_container_width=True)
-    if submit:
-        if not all([modal, minat, keahlian, waktu]):
-            st.warning("Mohon lengkapi semua kolom untuk hasil terbaik.")
+    st.title("💡 Rekomendasi Bisnis") #
+    st.markdown("Isi formulir di bawah ini untuk mendapatkan ide bisnis yang dipersonalisasi.") #
+    with st.container(border=True): #
+        with st.form("rec_form"): #
+            st.subheader("Profil Calon Pebisnis") #
+            modal = st.text_input("Berapa modal awal yang Anda siapkan?", placeholder="Contoh: Di bawah 5 juta") #
+            minat = st.text_input("Apa minat atau hobi utama Anda?") #
+            keahlian = st.text_input("Apa keahlian spesifik yang Anda miliki?") #
+            waktu = st.text_input("Berapa waktu luang Anda per minggu?") #
+            submit = st.form_submit_button("🚀 Berikan Saya Ide!", use_container_width=True) #
+    if submit: #
+        if not all([modal, minat, keahlian, waktu]): #
+            st.warning("Mohon lengkapi semua kolom untuk hasil terbaik.") #
         else:
-            prompt = f"""
-            Analisis profil calon pebisnis berikut:
-            - Modal Awal: {modal}
-            - Minat/Hobi: {minat}
-            - Keahlian Utama: {keahlian}
-            - Waktu Luang Tersedia: {waktu}
-            Berikan 3 rekomendasi ide bisnis yang paling cocok, disajikan dalam format markdown. Untuk setiap ide, jelaskan secara singkat: Target Pasar, Potensi Keuntungan, dan 3 Langkah Awal untuk memulainya.
-            """
-            with st.spinner("AI sedang menganalisis profil Anda..."):
+            prompt_data = {"modal": modal, "minat": minat, "keahlian": keahlian, "waktu": waktu} #
+            prompt = f"Analisis profil {prompt_data} dan berikan 3 ide bisnis singkat." #
+            with st.spinner("AI sedang menganalisis profil Anda..."): #
                 try:
-                    resp = model.generate_content(prompt)
-                    st.divider()
-                    st.subheader("✨ Berikut Rekomendasi Bisnis Untuk Anda")
-                    st.markdown(resp.text)
-                    st.download_button("📥 Unduh Rekomendasi", data=resp.text, file_name=f"rekomendasi_{datetime.datetime.now():%Y%m%d}.txt", mime="text/plain", use_container_width=True)
+                    resp = model.generate_content(prompt) #
+                    rekomendasi_ai = resp.text #
+                    st.divider() #
+                    st.subheader("✨ Berikut Rekomendasi Bisnis Untuk Anda") #
+                    st.markdown(rekomendasi_ai) #
+                    if st.session_state.get('user'): #
+                        if st.button("Simpan Rekomendasi ke Akun"): #
+                            user_id = st.session_state.user.user.id #
+                            supabase.table('recommendations').insert({
+                                "user_id": user_id,
+                                "prompt_data": json.dumps(prompt_data),
+                                "recommendation_text": rekomendasi_ai
+                            }).execute() #
+                            st.success("Rekomendasi berhasil disimpan!") #
                 except Exception as e:
-                    st.error(f"Terjadi kesalahan: {e}")
+                    st.error(f"Terjadi kesalahan: {e}") #
 
 def fitur_catatan():
-    st.title("📝 Catatan Bisnis")
-    st.markdown("Simpan semua ide dan rencana bisnis Anda di sini.")
-    notes_dir = "catatan_bisnis"
-    os.makedirs(notes_dir, exist_ok=True)
-    files = sorted([f for f in os.listdir(notes_dir) if f.endswith(".txt")], reverse=True)
-    col1, col2 = st.columns([1,1])
-    with col1:
-        with st.container(border=True):
-            st.subheader("Catatan Baru")
-            with st.form("new_note", clear_on_submit=True):
-                judul = st.text_input("Judul Catatan")
-                isi = st.text_area("Isi Catatan", height=150)
-                if st.form_submit_button("Simpan Catatan", use_container_width=True):
-                    if judul and isi:
-                        with open(os.path.join(notes_dir, f"{judul.replace(' ', '_')}.txt"), "w", encoding="utf-8") as f:
-                            f.write(isi)
-                        st.success("Catatan berhasil disimpan!")
-                        st.rerun()
+    st.title("📝 Catatan Bisnis") #
+    if not st.session_state.get('user'): #
+        st.warning("Anda harus login untuk membuat dan melihat catatan bisnis Anda.") #
+        st.info("Login atau buat akun baru melalui menu di sidebar.") #
+        return
+    user_id = st.session_state.user.user.id #
+    notes = supabase.table('notes').select('*').eq('user_id', user_id).order('created_at', desc=True).execute().data #
+    col1, col2 = st.columns([1,1]) #
+    with col1: #
+        with st.container(border=True): #
+            st.subheader("Catatan Baru") #
+            with st.form("new_note", clear_on_submit=True): #
+                judul = st.text_input("Judul Catatan") #
+                isi = st.text_area("Isi Catatan", height=150) #
+                if st.form_submit_button("Simpan Catatan", use_container_width=True, type="primary"): #
+                    if judul and isi: #
+                        supabase.table('notes').insert({"title": judul, "content": isi, "user_id": user_id}).execute() #
+                        st.success("Catatan berhasil disimpan!") #
+                        st.rerun() #
                     else:
-                        st.warning("Judul dan isi catatan tidak boleh kosong.")
-    with col2:
-        with st.container(border=True):
-            st.subheader("Daftar Catatan")
-            if not files:
-                st.info("Belum ada catatan yang tersimpan.")
+                        st.warning("Judul dan isi catatan tidak boleh kosong.") #
+    with col2: #
+        with st.container(border=True): #
+            st.subheader("Daftar Catatan") #
+            if not notes: #
+                st.info("Belum ada catatan yang tersimpan.") #
             else:
-                pilih = st.selectbox("Pilih catatan untuk dilihat atau dihapus", files, label_visibility="collapsed")
-                if pilih:
-                    with open(os.path.join(notes_dir, pilih), "r", encoding="utf-8") as f:
-                        konten = f.read()
-                    st.text_area("Isi:", value=konten, height=150, disabled=True)
-                    if st.button(f"Hapus '{pilih}'", type="primary", use_container_width=True):
-                        os.remove(os.path.join(notes_dir, pilih))
-                        st.success(f"Catatan '{pilih}' dihapus.")
-                        st.rerun()
+                note_titles = [note['title'] for note in notes] #
+                pilih = st.selectbox("Pilih catatan", note_titles, label_visibility="collapsed") #
+                if pilih: #
+                    selected_note = next((note for note in notes if note['title'] == pilih), None) #
+                    st.text_area("Isi:", value=selected_note['content'], height=150, disabled=True) #
+                    if st.button(f"Hapus '{pilih}'", use_container_width=True): #
+                        supabase.table('notes').delete().eq('id', selected_note['id']).execute() #
+                        st.success(f"Catatan '{pilih}' dihapus.") #
+                        st.rerun() #
 
 def fitur_kalkulator():
-    st.title("🧮 Kalkulator")
-    st.markdown("Kalkulator fungsional dengan fitur hapus per karakter.")
-    if 'calc_expression' not in st.session_state: st.session_state.calc_expression = "0"
+    st.title("🧮 Kalkulator Minimalis") #
+    st.markdown("Masukkan perhitungan di bawah dan tekan 'Hitung'. Gunakan `*` untuk kali dan `/` untuk bagi.") #
+    if 'calc_result' not in st.session_state: st.session_state.calc_result = "0" #
+    st.markdown(f'<div class="calculator-display">{st.session_state.calc_result}</div>', unsafe_allow_html=True) #
+    with st.form("calculator_form"): #
+        expression = st.text_input("Ekspresi matematika", label_visibility="collapsed",
+                                   placeholder="Contoh: (150000 + 50000) * 2") #
+        submitted = st.form_submit_button("Hitung", use_container_width=True) #
+    if submitted: #
+        try:
+            expr_to_eval = expression.replace('x', '*').replace('×', '*').replace(':', '/') #
+            if not re.match(r"^[0-9+\-*/().\s]*$", expr_to_eval): #
+                raise ValueError("Input mengandung karakter yang tidak diizinkan.") #
+            result = eval(expr_to_eval) #
+            st.session_state.calc_result = str(result) #
+            st.rerun() #
+        except Exception as e:
+            st.session_state.calc_result = "Error" #
+            st.error(f"Ekspresi tidak valid: {e}") #
+            st.rerun() #
 
-    def handle_click(value):
-        expr = st.session_state.calc_expression
-        if expr == "Error": expr = "0"
-        if value == "C" or value == "CE": st.session_state.calc_expression = "0"
-        elif value == "⌫": st.session_state.calc_expression = expr[:-1] if len(expr) > 1 else "0"
-        elif value == "=":
-            try:
-                expr_to_eval = expr.replace('×', '*').replace('÷', '/')
-                result = eval(expr_to_eval)
-                st.session_state.calc_expression = str(result) if not isinstance(result, float) else f"{result:.4f}".rstrip('0').rstrip('.')
-            except: st.session_state.calc_expression = "Error"
-        elif value in ['+', '-', '×', '÷']: st.session_state.calc_expression = f"{expr} {value} "
-        else: st.session_state.calc_expression = value if expr == "0" else f"{expr}{value}"
+# ------------- SIDEBAR & MENU -------------
+with st.sidebar: #
+    st.markdown('<div class="user-block">', unsafe_allow_html=True) #
+    if st.session_state.get('user'): #
+        email = st.session_state.user.user.email #
+        st.markdown(f"""
+            <div class="user-info">
+                <div class="user-avatar">{email[0].upper()}</div>
+                <div class="user-email">{email}</div>
+            </div>
+        """, unsafe_allow_html=True) #
+    else:
+        st.title("✨ Asisten Bisnis AI") #
+        with st.expander("🔐 Login / Buat Akun"): #
+            tab1, tab2 = st.tabs(["Login", "Buat Akun"]) #
+            with tab1: #
+                with st.form("login_form", clear_on_submit=True): #
+                    email = st.text_input("Email") #
+                    password = st.text_input("Password", type="password") #
+                    if st.form_submit_button("Login", use_container_width=True, type="primary"): #
+                        try:
+                            st.session_state['user'] = supabase.auth.sign_in_with_password({"email": email, "password": password}) #
+                            st.rerun() #
+                        except Exception as e:
+                            st.error(f"Login gagal: {e}") #
+            with tab2: #
+                with st.form("signup_form", clear_on_submit=True): #
+                    email = st.text_input("Email Baru") #
+                    password = st.text_input("Buat Password", type="password") #
+                    if st.form_submit_button("Buat Akun", use_container_width=True): #
+                        try:
+                            supabase.auth.sign_up({"email": email, "password": password}) #
+                            st.session_state['user'] = supabase.auth.sign_in_with_password({"email": email, "password": password}) #
+                            st.rerun() #
+                        except Exception as e:
+                            st.error(f"Gagal membuat akun: {e}") #
+    st.markdown('</div>', unsafe_allow_html=True) #
 
-    st.markdown(f'<div class="calculator-display">{st.session_state.calc_expression}</div>', unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    button_rows = [
-        ['%', 'CE', 'C', '⌫'], ['1/x', 'x²', '√x', '÷'],
-        ['7', '8', '9', '×'], ['4', '5', '6', 'k'],
-        ['1', '2', '3', ' p'], ['+/-', '0', '.', '=']
-    ]
-    key_map = {'%':'pct','CE':'ce','C':'c','⌫':'bks','1/x':'rec','x²':'sq','√x':'sqrt','÷':'div','×':'mul','-':'sub','+':'add','+/-':'neg','.':'dot','=':'eq'}
-
-    for row in button_rows:
-        cols = st.columns(4)
-        for i, btn in enumerate(row):
-            use_primary = (btn == '=')
-            if cols[i].button(btn, use_container_width=True, key=key_map.get(btn, btn), type="primary" if use_primary else "secondary"):
-                handle_click(btn)
-                st.rerun()
-
-# SIDEBAR
-with st.sidebar:
-    st.title("✨ Asisten Bisnis AI")
-    st.markdown("---")
-    menu = option_menu(
-        menu_title=None,
+    menu = option_menu( #
+        menu_title="",
         options=["Konsultasi", "Rekomendasi", "Catatan", "Kalkulator"],
         icons=["chat-quote-fill", "lightbulb-fill", "journal-text", "calculator-fill"],
         default_index=0
     )
-    st.markdown("<div style='flex-grow: 1;'></div>", unsafe_allow_html=True)
-    st.caption("Copyright © 2025 Sae Company. All rights reserved.")
 
-# ROUTING HALAMAN
-if menu == "Konsultasi": fitur_konsultasi()
-elif menu == "Rekomendasi": fitur_rekomendasi()
-elif menu == "Catatan": fitur_catatan()
-elif menu == "Kalkulator": fitur_kalkulator()
+    if st.session_state.get('user'): #
+        if st.button("Logout", use_container_width=True): #
+            st.session_state.user = None #
+            st.session_state.chat_session = None #
+            st.session_state.display_history = [] #
+            st.rerun() #
+    st.caption("© 2025 | Ditenagai oleh Google Gemini") #
+
+# ------------- ROUTE -------------
+if menu == "Konsultasi": #
+    fitur_konsultasi()
+elif menu == "Rekomendasi": #
+    fitur_rekomendasi()
+elif menu == "Catatan": #
+    fitur_catatan()
+elif menu == "Kalkulator": #
+    fitur_kalkulator()
+
