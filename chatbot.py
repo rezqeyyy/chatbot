@@ -27,7 +27,7 @@ while True:
 
     try:
         response = chat.send_message(user_input)
-        print(f"Dara Cantik: {response.text}\n")
+        print(f"AI: {response.text}\n")
     except Exception as e:
         print(f"Terjadi kesalahan saat mengirim pesan: {e}")
         break

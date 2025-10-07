@@ -87,7 +87,7 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 try:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     st.error(f"Konfigurasi API gagal: {e}")
@@ -139,26 +139,97 @@ def fitur_konsultasi(): # (Fungsi ini tetap sama dari sebelumnya)
             st.session_state.messages.append({"role": "ai", "name": "Konsultan AI", "content": ai_response})
             st.rerun()
         
-def fitur_rekomendasi(): # (Fungsi ini tetap sama)
+# --- [MODIFIKASI] FUNGSI REKOMENDASI DENGAN PERTANYAAN BARU ---
+def fitur_rekomendasi():
     st.title("💡 Rekomendasi Bisnis")
     st.markdown("Isi formulir di bawah ini untuk mendapatkan ide bisnis yang dipersonalisasi.")
     with st.container(border=True):
         with st.form("rec_form"):
             st.subheader("Profil Calon Pebisnis")
-            modal, minat, keahlian, waktu = st.text_input("Modal awal?"), st.text_input("Minat/hobi?"), st.text_input("Keahlian spesifik?"), st.text_input("Waktu luang per minggu?")
+            
+            # Pertanyaan baru
+            modal = st.text_input(
+                "Berapa modal awal yang Anda siapkan?",
+                placeholder="Contoh: di bawah 5 juta, 5–10 juta, >10 juta"
+            )
+            minat = st.text_input(
+                "Apa minat atau hobi utama Anda?",
+                placeholder="Contoh: memasak, fashion, teknologi, olahraga, dll"
+            )
+            keahlian = st.text_input(
+                "Apa keahlian spesifik yang Anda miliki?",
+                placeholder="Contoh: desain grafis, masak, jualan online, komunikasi"
+            )
+            waktu = st.text_input(
+                "Berapa waktu luang Anda per minggu?",
+                placeholder="Contoh: <10 jam, 10–20 jam, full-time"
+            )
+            lokasi = st.text_input(
+                "Di mana Anda berencana menjalankan usaha ini?",
+                placeholder="Contoh: online, rumah, toko, pasar, food court"
+            )
+            target_pembeli = st.text_input(
+                "Siapa calon pembeli utama yang Anda tuju?",
+                placeholder="Contoh: mahasiswa, pekerja kantoran, ibu rumah tangga, remaja"
+            )
+            jenis_produk = st.text_input(
+                "Produk atau jasa seperti apa yang paling ingin Anda coba jual?",
+                placeholder="Contoh: makanan, pakaian, jasa, produk digital"
+            )
+            tim = st.text_input(
+                "Apakah Anda ingin usaha ini dijalankan sendiri atau bersama tim/partner?",
+                placeholder="Sendiri / Partner / Keluarga"
+            )
+            harapan_profit = st.text_input(
+                "Seberapa cepat Anda berharap usaha ini bisa mulai menghasilkan keuntungan?",
+                placeholder="Contoh: segera dalam 1–2 bulan, jangka menengah 3–6 bulan, jangka panjang >6 bulan"
+            )
+            tujuan = st.text_input(
+                "Apa tujuan utama Anda berbisnis?",
+                placeholder="Contoh: tambahan penghasilan, usaha utama, menyalurkan passion"
+            )
+
             if st.form_submit_button("🚀 Berikan Saya Ide!", use_container_width=True):
-                if not all([modal, minat, keahlian, waktu]): st.warning("Mohon lengkapi semua kolom.")
+                # Validasi untuk semua input baru
+                all_inputs = [modal, minat, keahlian, waktu, lokasi, target_pembeli, jenis_produk, tim, harapan_profit, tujuan]
+                if not all(all_inputs):
+                    st.warning("Mohon lengkapi semua kolom untuk mendapatkan rekomendasi yang akurat.")
                 else:
-                    prompt_data = {"modal": modal, "minat": minat, "keahlian": keahlian, "waktu": waktu}
-                    prompt = f"Analisis profil {json.dumps(prompt_data)} dan berikan 3 ide bisnis singkat dalam format list."
+                    # Kumpulkan semua data ke dalam dictionary
+                    prompt_data = {
+                        "modal_awal": modal,
+                        "minat_atau_hobi": minat,
+                        "keahlian_spesifik": keahlian,
+                        "waktu_luang_per_minggu": waktu,
+                        "rencana_lokasi_usaha": lokasi,
+                        "target_calon_pembeli": target_pembeli,
+                        "jenis_produk_atau_jasa": jenis_produk,
+                        "dijalankan_sendiri_atau_tim": tim,
+                        "harapan_waktu_profit": harapan_profit,
+                        "tujuan_utama_berbisnis": tujuan
+                    }
+                    # Prompt baru yang lebih detail
+                    prompt = f"""
+                    Sebagai seorang analis bisnis yang berpengalaman, analisis profil calon pebisnis berikut ini secara mendalam:
+                    {json.dumps(prompt_data, indent=2)}
+
+                    Berdasarkan profil tersebut, berikan 3 ide bisnis yang paling relevan dan potensial.
+                    Untuk setiap ide, jelaskan:
+                    1.  **Nama Ide Bisnis:** (Contoh: Katering Sehat Rumahan)
+                    2.  **Deskripsi Singkat:** (Jelaskan konsep bisnisnya dalam 1-2 kalimat)
+                    3.  **Alasan Kecocokan:** (Jelaskan mengapa ide ini sangat cocok berdasarkan modal, minat, keahlian, dan faktor lainnya dari profil yang diberikan)
+                    
+                    Sajikan jawaban dalam format yang jelas dan mudah dibaca menggunakan markdown.
+                    """
                     with st.spinner("AI sedang menganalisis profil Anda..."):
                         try:
                             resp = model.generate_content(prompt)
                             st.divider()
                             st.subheader("✨ Berikut Rekomendasi Bisnis Untuk Anda")
                             st.markdown(resp.text)
-                            # ... (logika simpan rekomendasi tetap sama) ...
-                        except Exception as e: st.error(f"Terjadi kesalahan: {e}")
+                        except Exception as e:
+                            st.error(f"Terjadi kesalahan saat menghasilkan rekomendasi: {e}")
+
 
 def fitur_catatan():
     st.title("📝 Catatan Bisnis")
@@ -170,10 +241,9 @@ def fitur_catatan():
     user_id = st.session_state.user.user.id
     notes = supabase.table('notes').select('*').eq('user_id', user_id).order('created_at', desc=True).execute().data
     
-    # ---- [BARU] Tambahkan div pembungkus untuk menargetkan kolom ini di CSS ----
     st.markdown('<div class="responsive-columns">', unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2) # Menggunakan 2 kolom agar seimbang
+    col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True):
             st.subheader("Catatan Baru")
@@ -198,7 +268,7 @@ def fitur_catatan():
                         supabase.table('notes').delete().eq('id', selected_note['id']).execute()
                         st.success(f"Catatan '{pilih}' dihapus."); st.rerun()
 
-    st.markdown('</div>', unsafe_allow_html=True) # Jangan lupa tutup div-nya
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def fitur_kalkulator(): # (Fungsi ini tetap sama)
     st.title("🧮 Kalkulator Minimalis")
@@ -228,7 +298,6 @@ with st.sidebar:
         if st.button("Logout", use_container_width=True): st.session_state.user = None; st.rerun()
     else:
         with st.expander("🔐 Login / Buat Akun"):
-            # ... (logika form login & signup tetap sama) ...
             tab1, tab2 = st.tabs(["Login", "Buat Akun"])
             with tab1, st.form("login_form", clear_on_submit=True):
                 email, password = st.text_input("Email"), st.text_input("Password", type="password")
